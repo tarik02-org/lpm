@@ -16,6 +16,42 @@ These transitions must preserve consumer-owned configuration that existed before
 
 Add three consumer-wide commands. They never select individual links and read versions only from linked package-root `package.json` files. They do not query a registry. Before changing files, they validate every required package name, version, and dependency specifier. A missing or invalid version fails the command unchanged. Valid versions include semver prereleases.
 
+### Storage and recovery
+
+Store the transition in the existing consumer state file:
+
+```text
+<consumer>/<lpm-directory>/.state.json
+```
+
+Add a `mode` field. Active consumers store:
+
+```json
+{
+  "kind": "active"
+}
+```
+
+Stashed consumers store the exact package-root versions captured by `stash`:
+
+```json
+{
+  "kind": "stashed",
+  "versions": {
+    "@acme/ui-kit": "2.1.0-milestone.3",
+    "@acme/logger": "4.2.0"
+  }
+}
+```
+
+The stashed version keys must exactly match the state's link package names. Source manifest changes after stashing do not change the captured versions. `status` and `doctor` use the stored versions when checking stashed configuration.
+
+Do not store package manifest or workspace-file snapshots. Active configuration is derived from links and existing pre-link baselines. Stashed configuration is derived from those same values plus the captured version map. This preserves unrelated edits instead of restoring whole files.
+
+Write mode transitions atomically through the existing temporary-file rename while holding the consumer mutation lock. Persist the new desired mode before editing managed package-manager files, so `doctor --fix` can finish an interrupted transition.
+
+`commit` has no transitional state. It keeps the consumer state file and materializations until configuration changes and installation succeed, then removes them. A failed or interrupted commit therefore remains diagnosable and rerunnable. A forced mutation that discards a stash first persists `active` mode, then lets the requested command render its normal configuration.
+
 ### `lpm stash`
 
 Temporarily switch every link to its exact package-root version from the registry. Replace each LPM-owned local override or resolution with that exact version and remove LPM-owned workspace registration. Preserve the links, baselines, and materializations, and mark the consumer as stashed. Transitive links are allowed because the exact registry resolution does not require a direct consumer dependency.
