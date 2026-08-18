@@ -19,19 +19,9 @@ echo '/.local/lpm/' >> .gitignore
 
 lpm link ../ui-kit /work/shared/logger
 lpm dev
-
-lpm stash
-lpm unstash
-lpm commit
-
-lpm unlink
-lpm unlink @acme/ui-kit logger
-lpm unlink --all
 ```
 
 `link` accepts package-root paths containing `package.json`. `dev` watches and copies changes; start source build commands yourself.
-
-`stash` switches all links to exact versions from their source `package.json` files. `unstash` restores local links. `commit` writes those versions into direct dependency declarations and removes LPM state.
 
 Manifest normalization is enabled by default. Use `--verbatim` to copy `package.json` unchanged:
 
@@ -42,6 +32,24 @@ lpm link ../ui-kit --verbatim
 Supported package managers: npm, pnpm, Yarn, Bun, and Aube.
 
 Run `lpm <command> --help` for command details.
+
+## CLI cheatsheet
+
+| Command                      | Action                                                  |
+| ---------------------------- | ------------------------------------------------------- |
+| `lpm link <path>...`         | Link package roots and run install                      |
+| `lpm link <path> --verbatim` | Link without normalizing the materialized manifest      |
+| `lpm dev [package...]`       | Watch and copy all links or selected packages           |
+| `lpm stash`                  | Use exact source versions from the registry temporarily |
+| `lpm unstash`                | Restore all local links                                 |
+| `lpm commit`                 | Write source versions to dependencies and remove links  |
+| `lpm unlink [package...]`    | Select links interactively or unlink named packages     |
+| `lpm unlink --all`           | Unlink every package                                    |
+| `lpm status`                 | Show link mode, package manager, paths, and health      |
+| `lpm doctor`                 | Report missing paths and package-manager configuration  |
+| `lpm doctor --fix`           | Rebuild materializations, repair configuration, install |
+
+While stashed, `link`, `unlink`, `dev`, and `commit` ask before discarding the stash. Pass `--force` in noninteractive use.
 
 ## Configuration
 
@@ -64,14 +72,6 @@ lpm doctor --fix
 ```
 
 If an install fails, fix the reported problem and rerun the command or use `doctor --fix`. If a source moves, link its new path.
-
-## Nix checkout
-
-```text
-nix run path:. -- --help
-nix registry add lpm path:$PWD
-nix run lpm -- --help
-```
 
 ## Design
 

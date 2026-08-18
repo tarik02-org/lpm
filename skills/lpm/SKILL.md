@@ -1,6 +1,6 @@
 ---
 name: lpm
-description: Use the lpm CLI to link local package-root paths into npm, pnpm, Yarn, Bun, or Aube consumers, synchronize packages during development, inspect and repair consumer links, or unlink packages.
+description: Use the lpm CLI in npm, pnpm, Yarn, Bun, or Aube consumers to link, watch, stash, unstash, commit, inspect, repair, or unlink local packages.
 ---
 
 # lpm
@@ -45,6 +45,34 @@ lpm dev [<package>...]
 
 Omit package names to follow every current link. Link replacement and unlink update the watcher set while `lpm dev` remains running. Stop it with the foreground process.
 
+## Switch between local and registry packages
+
+Stash every link at the exact version in its source `package.json`:
+
+```text
+lpm stash
+```
+
+Stash keeps links and materializations, removes local package-manager resolution, and runs one install. Use it when consumer changes must resolve published packages temporarily. `status` and `doctor` remain available while stashed.
+
+Restore every stashed local link:
+
+```text
+lpm unstash
+```
+
+Unstash restores local resolution and runs one install.
+
+Permanently replace every link with its source version:
+
+```text
+lpm commit
+```
+
+Commit requires every linked package in root `dependencies`, `devDependencies`, or `optionalDependencies`. It accepts exact, caret, and tilde semver declarations, preserves that prefix, runs one install, then removes LPM state and materializations.
+
+While stashed, `link`, `unlink`, `dev`, and `commit` discard the stash before proceeding. In noninteractive work, pass `--force` only when the user explicitly authorizes discarding it. Otherwise stop and ask. Interactive LPM sessions ask for confirmation.
+
 ## Inspect and repair
 
 Run the read-only commands from the consumer:
@@ -63,6 +91,8 @@ lpm doctor --fix
 ```
 
 Repair rebuilds materializations, reapplies managed package-manager configuration, and runs one install. A missing source or incompatible package-manager strategy still needs user repair.
+
+When the consumer is stashed, repair keeps it stashed and reapplies exact registry versions.
 
 ## Unlink packages
 
