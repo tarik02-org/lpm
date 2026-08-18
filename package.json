@@ -19,12 +19,15 @@
     "url": "git+https://github.com/tarik02-org/lpm.git"
   },
   "bin": {
-    "lpm": "./dist/bin.js"
+    "lpm": "dist/bin.js"
   },
   "files": [
     "dist"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "vp pack",
     "changeset": "changeset",
@@ -35,7 +38,7 @@
     "lint:fix": "vp lint --fix",
     "prepack": "pnpm build",
     "release:check": "pnpm check && pnpm pack --dry-run",
-    "release:publish": "changeset publish",
+    "release:publish": "npm view \"$npm_package_name@$npm_package_version\" version >/dev/null 2>&1 || (npm publish && changeset tag)",
     "release:version": "changeset version && pnpm format",
     "typecheck": "tsgo --noEmit"
   },
