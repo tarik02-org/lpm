@@ -7,6 +7,7 @@ import {
   ConsumerNotLinkedError,
   MaterializationWriteError,
   PackageManagerChangedError,
+  StashedMutationRequiresForceError,
 } from "./error.ts";
 import {
   applyConsumerConfiguration,
@@ -18,10 +19,12 @@ import { installConsumerDependencies } from "./package-manager/install.ts";
 import { configurationStrategyName, hasCompatibleConfiguration } from "./package-manager/schema.ts";
 import type { PackageName } from "./package/schema.ts";
 import { loadState, removeState, saveState, stateMutationLock } from "./state/store.ts";
+import type { ConsumerState } from "./state/schema.ts";
 
 export interface UnlinkInput {
   readonly consumerRoot: string;
   readonly packageNames: ReadonlyArray<PackageName> | "all";
+  readonly force: boolean;
 }
 
 export const listLinkedPackages = Effect.fn("Unlink.listLinkedPackages")(function* (
@@ -44,17 +47,24 @@ export const unlinkPackages = Effect.fn("Unlink.unlinkPackages")(function* (inpu
   return yield* Effect.scoped(
     Effect.gen(function* () {
       yield* stateMutationLock(consumerRoot);
-      const state = yield* loadState(consumerRoot);
-      if (state === undefined || state.links.length === 0) {
+      const loadedState = yield* loadState(consumerRoot);
+      if (loadedState === undefined || loadedState.links.length === 0) {
         return yield* new ConsumerHasNoLinksError({ consumerRoot });
       }
-      if (!hasCompatibleConfiguration(state.packageManager, detectedManager)) {
+      if (!hasCompatibleConfiguration(loadedState.packageManager, detectedManager)) {
         return yield* new PackageManagerChangedError({
           consumerRoot,
-          previous: configurationStrategyName(state.packageManager),
+          previous: configurationStrategyName(loadedState.packageManager),
           detected: configurationStrategyName(detectedManager),
         });
       }
+      if (loadedState.mode.kind === "stashed" && !input.force) {
+        return yield* new StashedMutationRequiresForceError({ consumerRoot });
+      }
+      const state: ConsumerState =
+        loadedState.mode.kind === "stashed"
+          ? { ...loadedState, mode: { kind: "active" } }
+          : loadedState;
 
       const packageNames =
         input.packageNames === "all"
@@ -68,6 +78,9 @@ export const unlinkPackages = Effect.fn("Unlink.unlinkPackages")(function* (inpu
           });
         }
       }
+      if (loadedState.mode.kind === "stashed") {
+        yield* saveState(consumerRoot, state);
+      }
 
       const removed = state.links.filter((link) => packageNames.includes(link.packageName));
       const remaining = state.links.filter((link) => !packageNames.includes(link.packageName));
@@ -77,7 +90,7 @@ export const unlinkPackages = Effect.fn("Unlink.unlinkPackages")(function* (inpu
         manager: detectedManager,
         current: currentConfiguration,
         baselines: state.baselines,
-        links: remaining,
+        target: { kind: "active", links: remaining },
       });
 
       yield* applyConsumerConfiguration(currentConfiguration, plan);

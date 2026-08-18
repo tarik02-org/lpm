@@ -10,14 +10,14 @@ import {
   ConsumerConfigurationWriteError,
   UnsupportedConsumerConfigurationError,
 } from "../error.ts";
-import type { AbsolutePath, PackageName } from "../package/schema.ts";
+import type { AbsolutePath, PackageName, PackageVersion } from "../package/schema.ts";
 import type { LinkRecord, ManagedFieldBaseline } from "../state/schema.ts";
 import type { DetectedPackageManager } from "./schema.ts";
 
 type JsonValue = typeof Schema.Json.Type;
 type JsonRecord = Readonly<Record<string, JsonValue>>;
 type StringRecord = Readonly<Record<string, string>>;
-type DependencySection = "dependencies" | "devDependencies" | "optionalDependencies";
+export type DependencySection = "dependencies" | "devDependencies" | "optionalDependencies";
 
 type DesiredValue<A> =
   | { readonly kind: "missing" }
@@ -81,6 +81,31 @@ export interface ConsumerConfigurationPlan {
   readonly edits: ReadonlyArray<ConsumerConfigurationEdit>;
   readonly removePnpmWorkspaceFileIfEmpty: boolean;
 }
+
+export interface CommittedDependency {
+  readonly packageName: PackageName;
+  readonly section: DependencySection;
+  readonly value: string;
+}
+
+export interface StashedPackageLink {
+  readonly link: LinkRecord;
+  readonly version: PackageVersion;
+}
+
+export type ConsumerConfigurationTarget =
+  | {
+      readonly kind: "active";
+      readonly links: ReadonlyArray<LinkRecord>;
+    }
+  | {
+      readonly kind: "stashed";
+      readonly packages: ReadonlyArray<StashedPackageLink>;
+    }
+  | {
+      readonly kind: "committed";
+      readonly dependencies: ReadonlyArray<CommittedDependency>;
+    };
 
 const JsonObject = Schema.Record(Schema.String, Schema.Json);
 const OptionalStringArray = Schema.UndefinedOr(Schema.Array(Schema.String));
@@ -347,6 +372,36 @@ const mergeStringOverrides = (
   return { kind: "present", value: overrides } satisfies DesiredValue<StringRecord>;
 };
 
+const mergeJsonVersionOverrides = (
+  baseline: DesiredValue<JsonRecord>,
+  packages: ReadonlyArray<StashedPackageLink>,
+) => {
+  if (packages.length === 0) {
+    return baseline;
+  }
+  const overrides: Record<string, JsonValue> =
+    baseline.kind === "present" ? { ...baseline.value } : {};
+  for (const entry of packages) {
+    overrides[entry.link.packageName] = entry.version;
+  }
+  return { kind: "present", value: overrides } satisfies DesiredValue<JsonRecord>;
+};
+
+const mergeStringVersionOverrides = (
+  baseline: DesiredValue<StringRecord>,
+  packages: ReadonlyArray<StashedPackageLink>,
+) => {
+  if (packages.length === 0) {
+    return baseline;
+  }
+  const overrides: Record<string, string> =
+    baseline.kind === "present" ? { ...baseline.value } : {};
+  for (const entry of packages) {
+    overrides[entry.link.packageName] = entry.version;
+  }
+  return { kind: "present", value: overrides } satisfies DesiredValue<StringRecord>;
+};
+
 const relativeLinkSpecifier = (
   consumerRoot: AbsolutePath,
   materializedRoot: AbsolutePath,
@@ -364,11 +419,17 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
     readonly manager: DetectedPackageManager;
     readonly current: ConsumerConfiguration;
     readonly baselines: ReadonlyArray<ManagedFieldBaseline>;
-    readonly links: ReadonlyArray<LinkRecord>;
+    readonly target: ConsumerConfigurationTarget;
   }) {
     const path = yield* Path.Path;
     const captures: Array<ManagedFieldBaseline> = [];
     const edits: Array<ConsumerConfigurationEdit> = [];
+    const links =
+      options.target.kind === "active"
+        ? options.target.links
+        : options.target.kind === "stashed"
+          ? options.target.packages.map((entry) => entry.link)
+          : [];
 
     const packageWorkspaceBaseline = options.baselines.find(
       (baseline) => baseline.kind === "package-json-workspaces",
@@ -389,24 +450,32 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
     const usePackageWorkspaces = () => {
       const previous =
         packageWorkspaceBaseline?.previous ?? previousValue(options.current.packageJson.workspaces);
-      if (packageWorkspaceBaseline === undefined) {
+      if (packageWorkspaceBaseline === undefined && options.target.kind === "active") {
         captures.push({ kind: "package-json-workspaces", previous });
       }
       edits.push({
         kind: "package-json-workspaces",
-        value: mergeWorkspacePaths(previous, options.links, options.consumerRoot, path),
+        value:
+          options.target.kind === "active"
+            ? mergeWorkspacePaths(previous, links, options.consumerRoot, path)
+            : previous,
       });
     };
 
     const usePackageOverrides = (valueFor: (link: LinkRecord) => string) => {
       const previous =
         packageOverrideBaseline?.previous ?? previousValue(options.current.packageJson.overrides);
-      if (packageOverrideBaseline === undefined) {
+      if (packageOverrideBaseline === undefined && options.target.kind === "active") {
         captures.push({ kind: "package-json-overrides", previous });
       }
       edits.push({
         kind: "package-json-overrides",
-        value: mergeJsonOverrides(previous, options.links, valueFor),
+        value:
+          options.target.kind === "active"
+            ? mergeJsonOverrides(previous, links, valueFor)
+            : options.target.kind === "stashed"
+              ? mergeJsonVersionOverrides(previous, options.target.packages)
+              : previous,
       });
     };
 
@@ -415,27 +484,55 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
         pnpmPackagesBaseline?.previous ?? previousValue(options.current.pnpmWorkspace.packages);
       const overridesPrevious =
         pnpmOverrideBaseline?.previous ?? previousValue(options.current.pnpmWorkspace.overrides);
-      if (pnpmPackagesBaseline === undefined) {
+      if (pnpmPackagesBaseline === undefined && options.target.kind === "active") {
         captures.push({
           kind: "pnpm-workspace-packages",
           fileExisted: options.current.pnpmWorkspace.exists,
           previous: packagesPrevious,
         });
       }
-      if (pnpmOverrideBaseline === undefined) {
+      if (pnpmOverrideBaseline === undefined && options.target.kind === "active") {
         captures.push({ kind: "pnpm-workspace-overrides", previous: overridesPrevious });
       }
       edits.push(
         {
           kind: "pnpm-workspace-packages",
-          value: mergeWorkspacePaths(packagesPrevious, options.links, options.consumerRoot, path),
+          value:
+            options.target.kind === "active"
+              ? mergeWorkspacePaths(packagesPrevious, links, options.consumerRoot, path)
+              : packagesPrevious,
         },
         {
           kind: "pnpm-workspace-overrides",
-          value: mergeStringOverrides(overridesPrevious, options.links, valueFor),
+          value:
+            options.target.kind === "active"
+              ? mergeStringOverrides(overridesPrevious, links, valueFor)
+              : options.target.kind === "stashed"
+                ? mergeStringVersionOverrides(overridesPrevious, options.target.packages)
+                : overridesPrevious,
         },
       );
     };
+
+    const dependencyEdits = new Map<string, ConsumerConfigurationEdit>();
+    const setDependency = (
+      packageName: PackageName,
+      section: DependencySection,
+      value: DesiredValue<string>,
+    ) => {
+      dependencyEdits.set(`${section}\0${packageName}`, {
+        kind: "package-json-dependency",
+        packageName,
+        section,
+        value,
+      });
+    };
+
+    for (const baseline of options.baselines) {
+      if (baseline.kind === "package-json-dependency") {
+        setDependency(baseline.packageName, baseline.section, baseline.previous);
+      }
+    }
 
     switch (options.manager.kind) {
       case "npm": {
@@ -454,49 +551,58 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
           },
         ];
 
-        for (const link of options.links) {
-          for (const dependencySection of dependencySections) {
-            const existingBaseline = options.baselines.find(
-              (baseline) =>
-                baseline.kind === "package-json-dependency" &&
-                baseline.packageName === link.packageName &&
-                baseline.section === dependencySection.section,
-            );
-            const currentValue = dependencySection.values?.[link.packageName];
-            if (existingBaseline === undefined && currentValue !== undefined) {
-              const baseline: ManagedFieldBaseline = {
-                kind: "package-json-dependency",
-                packageName: link.packageName,
-                section: dependencySection.section,
-                previous: { kind: "present", value: currentValue },
-              };
-              captures.push(baseline);
-              edits.push({
-                kind: "package-json-dependency",
-                packageName: link.packageName,
-                section: dependencySection.section,
-                value: { kind: "present", value: `file:${link.materializedRoot}` },
-              });
+        if (options.target.kind === "active") {
+          for (const link of links) {
+            for (const dependencySection of dependencySections) {
+              const existingBaseline = options.baselines.find(
+                (baseline) =>
+                  baseline.kind === "package-json-dependency" &&
+                  baseline.packageName === link.packageName &&
+                  baseline.section === dependencySection.section,
+              );
+              const currentValue = dependencySection.values?.[link.packageName];
+              if (existingBaseline === undefined && currentValue !== undefined) {
+                captures.push({
+                  kind: "package-json-dependency",
+                  packageName: link.packageName,
+                  section: dependencySection.section,
+                  previous: { kind: "present", value: currentValue },
+                });
+              }
+              if (existingBaseline !== undefined || currentValue !== undefined) {
+                setDependency(link.packageName, dependencySection.section, {
+                  kind: "present",
+                  value: `file:${link.materializedRoot}`,
+                });
+              }
             }
           }
-        }
-
-        for (const baseline of options.baselines) {
-          if (baseline.kind !== "package-json-dependency") {
-            continue;
+        } else if (options.target.kind === "stashed") {
+          for (const stashedPackage of options.target.packages) {
+            for (const dependencySection of dependencySections) {
+              const existingBaseline = options.baselines.find(
+                (baseline) =>
+                  baseline.kind === "package-json-dependency" &&
+                  baseline.packageName === stashedPackage.link.packageName &&
+                  baseline.section === dependencySection.section,
+              );
+              const currentValue = dependencySection.values?.[stashedPackage.link.packageName];
+              if (existingBaseline === undefined && currentValue !== undefined) {
+                captures.push({
+                  kind: "package-json-dependency",
+                  packageName: stashedPackage.link.packageName,
+                  section: dependencySection.section,
+                  previous: { kind: "present", value: currentValue },
+                });
+              }
+              if (existingBaseline !== undefined || currentValue !== undefined) {
+                setDependency(stashedPackage.link.packageName, dependencySection.section, {
+                  kind: "present",
+                  value: stashedPackage.version,
+                });
+              }
+            }
           }
-          const link = options.links.find(
-            (candidate) => candidate.packageName === baseline.packageName,
-          );
-          edits.push({
-            kind: "package-json-dependency",
-            packageName: baseline.packageName,
-            section: baseline.section,
-            value:
-              link === undefined
-                ? baseline.previous
-                : { kind: "present", value: `file:${link.materializedRoot}` },
-          });
         }
         break;
       }
@@ -507,15 +613,25 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
         const previous =
           packageResolutionBaseline?.previous ??
           previousValue(options.current.packageJson.resolutions);
-        if (packageResolutionBaseline === undefined) {
+        if (packageResolutionBaseline === undefined && options.target.kind === "active") {
           captures.push({ kind: "package-json-resolutions", previous });
         }
         const protocol = options.manager.generation === "classic" ? "link" : "portal";
         edits.push({
           kind: "package-json-resolutions",
-          value: mergeStringOverrides(previous, options.links, (link) =>
-            relativeLinkSpecifier(options.consumerRoot, link.materializedRoot, protocol, path),
-          ),
+          value:
+            options.target.kind === "active"
+              ? mergeStringOverrides(previous, links, (link) =>
+                  relativeLinkSpecifier(
+                    options.consumerRoot,
+                    link.materializedRoot,
+                    protocol,
+                    path,
+                  ),
+                )
+              : options.target.kind === "stashed"
+                ? mergeStringVersionOverrides(previous, options.target.packages)
+                : previous,
         });
         break;
       }
@@ -539,12 +655,24 @@ export const planConsumerConfiguration = Effect.fn("ConsumerConfiguration.plan")
         return options.manager satisfies never;
     }
 
+    if (options.target.kind === "committed") {
+      for (const dependency of options.target.dependencies) {
+        setDependency(dependency.packageName, dependency.section, {
+          kind: "present",
+          value: dependency.value,
+        });
+      }
+    }
+
+    edits.push(...dependencyEdits.values());
+
     return {
       manager: options.manager,
       baselineCaptures: captures,
       edits,
       removePnpmWorkspaceFileIfEmpty:
-        options.links.length === 0 && pnpmPackagesBaseline?.fileExisted === false,
+        (options.target.kind !== "active" || links.length === 0) &&
+        pnpmPackagesBaseline?.fileExisted === false,
     } satisfies ConsumerConfigurationPlan;
   },
 );

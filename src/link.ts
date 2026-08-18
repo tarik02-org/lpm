@@ -9,6 +9,7 @@ import {
   ConsumerRootNotFoundError,
   PackageManagerChangedError,
   PackageManifestReadError,
+  StashedMutationRequiresForceError,
 } from "./error.ts";
 import { materializePackage } from "./materialization/materialize.ts";
 import {
@@ -28,6 +29,7 @@ export interface LinkInput {
   readonly consumerRoot: string;
   readonly packageRoots: ReadonlyArray<string>;
   readonly manifestMode: ManifestMode;
+  readonly force: boolean;
 }
 
 interface ResolvedPackageRoot {
@@ -85,16 +87,26 @@ export const linkPackages = Effect.fn("Link.linkPackages")(function* (input: Lin
   return yield* Effect.scoped(
     Effect.gen(function* () {
       yield* stateMutationLock(consumerRoot);
-      const existingState = yield* loadState(consumerRoot);
+      const loadedState = yield* loadState(consumerRoot);
       if (
-        existingState !== undefined &&
-        !hasCompatibleConfiguration(existingState.packageManager, detectedManager)
+        loadedState !== undefined &&
+        !hasCompatibleConfiguration(loadedState.packageManager, detectedManager)
       ) {
         return yield* new PackageManagerChangedError({
           consumerRoot,
-          previous: configurationStrategyName(existingState.packageManager),
+          previous: configurationStrategyName(loadedState.packageManager),
           detected: configurationStrategyName(detectedManager),
         });
+      }
+      if (loadedState?.mode.kind === "stashed" && !input.force) {
+        return yield* new StashedMutationRequiresForceError({ consumerRoot });
+      }
+      const existingState: ConsumerState | undefined =
+        loadedState?.mode.kind === "stashed"
+          ? { ...loadedState, mode: { kind: "active" } }
+          : loadedState;
+      if (loadedState?.mode.kind === "stashed") {
+        yield* saveState(consumerRoot, { ...loadedState, mode: { kind: "active" } });
       }
 
       const selectedPackageNames = new Set(packages.map((resolved) => resolved.packageName));
@@ -132,13 +144,14 @@ export const linkPackages = Effect.fn("Link.linkPackages")(function* (input: Lin
         manager: detectedManager,
         current: currentConfiguration,
         baselines: existingState?.baselines ?? [],
-        links,
+        target: { kind: "active", links },
       });
       const state: ConsumerState = {
         version: 1,
         packageManager: detectedManager,
         baselines: [...(existingState?.baselines ?? []), ...plan.baselineCaptures],
         links,
+        mode: { kind: "active" },
       };
 
       yield* saveState(consumerRoot, state);

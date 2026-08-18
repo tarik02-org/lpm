@@ -44,6 +44,19 @@ export const statusCommand = Command.make("status", {}, () =>
     yield* Console.log(
       `${healthIcon(status.tracking.packageManagerCompatible)} ${pc.magenta("strategy")} ${pc.bold(configurationStrategyName(status.tracking.status.state.packageManager))} ${pc.dim(`• recorded ${status.tracking.status.state.packageManager.version}`)}`,
     );
+    const mode = status.tracking.status.state.mode;
+    yield* Console.log(
+      `${mode.kind === "active" ? pc.green("🔗 local") : pc.yellow("📦 stashed")} ${pc.dim("mode")}`,
+    );
+    if (mode.kind === "stashed") {
+      for (const [packageName, version] of Object.entries(mode.versions).toSorted(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        yield* Console.log(
+          `  ${pc.bold(pc.cyan(packageName))} ${pc.dim("→")} ${pc.magenta(version)}`,
+        );
+      }
+    }
     if (status.tracking.status.links.length === 0) {
       yield* Console.log(`${pc.yellow("📭")} ${pc.dim("no linked packages")}`);
       return;

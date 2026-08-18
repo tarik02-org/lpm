@@ -61,7 +61,7 @@ export class InteractivePromptError extends Schema.TaggedError<InteractivePrompt
   { cause: Cause },
 ) {
   override get message() {
-    return "interactive package selection failed";
+    return "interactive prompt failed";
   }
 }
 
@@ -116,6 +116,64 @@ export class ConsumerHasNoLinksError extends Schema.TaggedError<ConsumerHasNoLin
 ) {
   override get message() {
     return `no packages are linked in ${this.consumerRoot}`;
+  }
+}
+
+export class ConsumerAlreadyStashedError extends Schema.TaggedError<ConsumerAlreadyStashedError>()(
+  "ConsumerAlreadyStashedError",
+  { consumerRoot: Schema.String },
+) {
+  override get message() {
+    return `${this.consumerRoot} is already stashed`;
+  }
+}
+
+export class ConsumerNotStashedError extends Schema.TaggedError<ConsumerNotStashedError>()(
+  "ConsumerNotStashedError",
+  { consumerRoot: Schema.String },
+) {
+  override get message() {
+    return `${this.consumerRoot} is not stashed`;
+  }
+}
+
+export class StashedMutationRequiresForceError extends Schema.TaggedError<StashedMutationRequiresForceError>()(
+  "StashedMutationRequiresForceError",
+  { consumerRoot: Schema.String },
+) {
+  override get message() {
+    return `${this.consumerRoot} is stashed; pass --force to discard the stash`;
+  }
+}
+
+export class StashedMutationCancelledError extends Schema.TaggedError<StashedMutationCancelledError>()(
+  "StashedMutationCancelledError",
+  {},
+) {
+  override get message() {
+    return "stash discard cancelled";
+  }
+}
+
+export class CommitDependencyMissingError extends Schema.TaggedError<CommitDependencyMissingError>()(
+  "CommitDependencyMissingError",
+  { packageName: Schema.String },
+) {
+  override get message() {
+    return `${this.packageName} is not a root dependency`;
+  }
+}
+
+export class UnsupportedCommitDependencySpecifierError extends Schema.TaggedError<UnsupportedCommitDependencySpecifierError>()(
+  "UnsupportedCommitDependencySpecifierError",
+  {
+    packageName: Schema.String,
+    section: Schema.String,
+    specifier: Schema.String,
+  },
+) {
+  override get message() {
+    return `cannot commit ${this.packageName} from unsupported ${this.section} specifier '${this.specifier}'`;
   }
 }
 

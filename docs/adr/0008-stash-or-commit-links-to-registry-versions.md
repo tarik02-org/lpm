@@ -1,6 +1,6 @@
 # ADR 0008: Stash or commit links to registry versions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-18
 
 ## Context

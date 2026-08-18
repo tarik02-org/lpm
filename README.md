@@ -20,12 +20,18 @@ echo '/.local/lpm/' >> .gitignore
 lpm link ../ui-kit /work/shared/logger
 lpm dev
 
+lpm stash
+lpm unstash
+lpm commit
+
 lpm unlink
 lpm unlink @acme/ui-kit logger
 lpm unlink --all
 ```
 
 `link` accepts package-root paths containing `package.json`. `dev` watches and copies changes; start source build commands yourself.
+
+`stash` switches all links to exact versions from their source `package.json` files. `unstash` restores local links. `commit` writes those versions into direct dependency declarations and removes LPM state.
 
 Manifest normalization is enabled by default. Use `--verbatim` to copy `package.json` unchanged:
 

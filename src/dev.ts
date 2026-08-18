@@ -9,18 +9,25 @@ import {
   ConsumerNotLinkedError,
   DevelopmentWatchError,
   PackageManagerChangedError,
+  StashedMutationRequiresForceError,
 } from "./error.ts";
 import { materializePackage } from "./materialization/materialize.ts";
+import {
+  applyConsumerConfiguration,
+  planConsumerConfiguration,
+  readConsumerConfiguration,
+} from "./package-manager/config.ts";
 import { detectPackageManager } from "./package-manager/detect.ts";
 import { installConsumerDependencies } from "./package-manager/install.ts";
 import { configurationStrategyName, hasCompatibleConfiguration } from "./package-manager/schema.ts";
 import type { PackageName } from "./package/schema.ts";
 import type { ConsumerState, LinkRecord } from "./state/schema.ts";
-import { loadState, stateMutationLock, watchStateChanges } from "./state/store.ts";
+import { loadState, saveState, stateMutationLock, watchStateChanges } from "./state/store.ts";
 
 export interface DevInput {
   readonly consumerRoot: string;
   readonly packageNames: ReadonlyArray<PackageName> | "all";
+  readonly force: boolean;
 }
 
 export interface DevelopmentSync {
@@ -38,7 +45,7 @@ const selectDevelopmentPackages = (
   consumerRoot: string,
   packageNames: ReadonlySet<PackageName> | "all",
 ) => {
-  if (state === undefined) {
+  if (state === undefined || state.mode.kind === "stashed") {
     return { consumerRoot, links: [] } satisfies DevelopmentSelection;
   }
 
@@ -68,29 +75,57 @@ export const devPackages = (input: DevInput) =>
       const fs = yield* FileSystem.FileSystem;
       const consumerRoot = yield* findConsumerRoot(input.consumerRoot);
       const detectedManager = yield* detectPackageManager(consumerRoot);
-      const state = yield* loadState(consumerRoot);
-      if (state === undefined || state.links.length === 0) {
-        return yield* new ConsumerHasNoLinksError({ consumerRoot });
-      }
-      if (!hasCompatibleConfiguration(state.packageManager, detectedManager)) {
-        return yield* new PackageManagerChangedError({
-          consumerRoot,
-          previous: configurationStrategyName(state.packageManager),
-          detected: configurationStrategyName(detectedManager),
-        });
-      }
-
       const requestedPackageNames =
         input.packageNames === "all" ? "all" : new Set(input.packageNames);
-      const initialPackageNames =
-        requestedPackageNames === "all"
-          ? new Set(state.links.map((link) => link.packageName))
-          : requestedPackageNames;
-      for (const packageName of initialPackageNames) {
-        if (!state.links.some((link) => link.packageName === packageName)) {
-          return yield* new ConsumerNotLinkedError({ consumerRoot, packageName });
-        }
-      }
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* stateMutationLock(consumerRoot);
+          const loadedState = yield* loadState(consumerRoot);
+          if (loadedState === undefined || loadedState.links.length === 0) {
+            return yield* new ConsumerHasNoLinksError({ consumerRoot });
+          }
+          if (!hasCompatibleConfiguration(loadedState.packageManager, detectedManager)) {
+            return yield* new PackageManagerChangedError({
+              consumerRoot,
+              previous: configurationStrategyName(loadedState.packageManager),
+              detected: configurationStrategyName(detectedManager),
+            });
+          }
+          const initialPackageNames =
+            requestedPackageNames === "all"
+              ? new Set(loadedState.links.map((link) => link.packageName))
+              : requestedPackageNames;
+          for (const packageName of initialPackageNames) {
+            if (!loadedState.links.some((link) => link.packageName === packageName)) {
+              return yield* new ConsumerNotLinkedError({ consumerRoot, packageName });
+            }
+          }
+          if (loadedState.mode.kind === "active") {
+            return loadedState;
+          }
+          if (!input.force) {
+            return yield* new StashedMutationRequiresForceError({ consumerRoot });
+          }
+
+          const activeState: ConsumerState = {
+            ...loadedState,
+            packageManager: detectedManager,
+            mode: { kind: "active" },
+          };
+          const current = yield* readConsumerConfiguration(consumerRoot);
+          const plan = yield* planConsumerConfiguration({
+            consumerRoot,
+            manager: detectedManager,
+            current,
+            baselines: loadedState.baselines,
+            target: { kind: "active", links: loadedState.links },
+          });
+          yield* saveState(consumerRoot, activeState);
+          yield* applyConsumerConfiguration(current, plan);
+          yield* installConsumerDependencies(consumerRoot, detectedManager);
+          return activeState;
+        }),
+      );
 
       const stateChanges = yield* watchStateChanges(consumerRoot);
       const selections = Stream.merge(

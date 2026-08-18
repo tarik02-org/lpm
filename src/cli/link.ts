@@ -5,6 +5,7 @@ import pc from "picocolors";
 
 import { PackageRootRequiredError } from "../error.ts";
 import { linkPackages } from "../link.ts";
+import { resolveStashedMutationForce } from "./confirm.ts";
 
 export const linkCommand = Command.make(
   "link",
@@ -14,17 +15,27 @@ export const linkCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription("keep the materialized package.json unchanged"),
     ),
+    force: Flag.boolean("force").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("discard a stash before linking packages"),
+    ),
   },
-  ({ packageRoots, verbatim }) =>
+  ({ force, packageRoots, verbatim }) =>
     Effect.gen(function* () {
       if (packageRoots.length === 0) {
         yield* new PackageRootRequiredError();
       }
 
+      const discardStash = yield* resolveStashedMutationForce({
+        consumerStart: ".",
+        force,
+      });
+
       const links = yield* linkPackages({
         consumerRoot: ".",
         packageRoots,
         manifestMode: verbatim ? "verbatim" : "normalized",
+        force: discardStash,
       });
       for (const link of links) {
         yield* Console.log(

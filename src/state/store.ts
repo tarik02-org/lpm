@@ -36,6 +36,18 @@ const stateLinksAreUnique = (state: ConsumerState) => {
   return true;
 };
 
+const stashedVersionKeysMatchLinks = (state: ConsumerState) => {
+  if (state.mode.kind === "active") {
+    return true;
+  }
+  const linkNames = state.links.map((link) => link.packageName).toSorted();
+  const versionNames = Object.keys(state.mode.versions).toSorted();
+  return (
+    linkNames.length === versionNames.length &&
+    linkNames.every((packageName, index) => packageName === versionNames[index])
+  );
+};
+
 export const loadState = Effect.fn("StateStore.load")(function* (consumerRoot: AbsolutePath) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -70,6 +82,12 @@ export const loadState = Effect.fn("StateStore.load")(function* (consumerRoot: A
         cause: new Error("state contains duplicate package links"),
       });
     }
+    if (!stashedVersionKeysMatchLinks(state)) {
+      return yield* new StateDecodeError({
+        path: statePath,
+        cause: new Error("stashed versions do not match package links"),
+      });
+    }
   }
 
   return state;
@@ -84,6 +102,12 @@ export const saveState = Effect.fn("StateStore.save")(function* (
   const stateDirectory = yield* getStateDirectory(consumerRoot);
   const statePath = path.join(stateDirectory, ".state.json");
   const temporaryPath = path.join(stateDirectory, ".state.json.tmp");
+  if (!stateLinksAreUnique(state) || !stashedVersionKeysMatchLinks(state)) {
+    yield* new StateWriteError({
+      path: statePath,
+      cause: new Error("state links and stashed versions are inconsistent"),
+    });
+  }
   const text = yield* encodeConsumerStateJson(state).pipe(
     Effect.catchTag("SchemaError", (cause) =>
       Effect.fail(new StateWriteError({ path: statePath, cause })),

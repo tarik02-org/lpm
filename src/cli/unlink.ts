@@ -7,6 +7,7 @@ import { InvalidPackageNameError, InvalidUnlinkSelectionError } from "../error.t
 import { decodePackageName } from "../package/schema.ts";
 import type { PackageName } from "../package/schema.ts";
 import { listLinkedPackages, unlinkPackages } from "../unlink.ts";
+import { resolveStashedMutationForce } from "./confirm.ts";
 import { selectMany } from "./multi-select.ts";
 
 export const unlinkCommand = Command.make(
@@ -17,8 +18,12 @@ export const unlinkCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription("unlink every package in this consumer"),
     ),
+    force: Flag.boolean("force").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("discard a stash before unlinking packages"),
+    ),
   },
-  ({ all, packageNames }) =>
+  ({ all, force, packageNames }) =>
     Effect.gen(function* () {
       if (all && packageNames.length > 0) {
         yield* new InvalidUnlinkSelectionError({
@@ -57,9 +62,14 @@ export const unlinkCommand = Command.make(
         }
       }
 
+      const discardStash = yield* resolveStashedMutationForce({
+        consumerStart: ".",
+        force,
+      });
       const removed = yield* unlinkPackages({
         consumerRoot: ".",
         packageNames: selectedPackageNames,
+        force: discardStash,
       });
       for (const link of removed) {
         yield* Console.log(`${pc.green("➖ unlinked")} ${pc.bold(pc.cyan(link.packageName))}`);

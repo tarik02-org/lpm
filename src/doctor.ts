@@ -8,6 +8,7 @@ import {
   consumerConfigurationNeedsApply,
   planConsumerConfiguration,
   readConsumerConfiguration,
+  type ConsumerConfigurationTarget,
 } from "./package-manager/config.ts";
 import { detectPackageManager } from "./package-manager/detect.ts";
 import { installConsumerDependencies } from "./package-manager/install.ts";
@@ -16,6 +17,18 @@ import type { AbsolutePath, PackageName } from "./package/schema.ts";
 import { readCurrentConsumerStatus, type CurrentConsumerStatus } from "./status.ts";
 import { loadState, saveState, stateMutationLock } from "./state/store.ts";
 import type { ConsumerState } from "./state/schema.ts";
+
+const configurationTarget = (state: ConsumerState): ConsumerConfigurationTarget =>
+  state.mode.kind === "active"
+    ? { kind: "active", links: state.links }
+    : {
+        kind: "stashed",
+        packages: Object.entries(state.mode.versions).flatMap(([packageName, version]) =>
+          state.links
+            .filter((link) => link.packageName === packageName)
+            .map((link) => ({ link, version })),
+        ),
+      };
 
 export type DoctorIssue =
   | {
@@ -86,7 +99,7 @@ export const diagnoseConsumer = Effect.fn("Doctor.diagnose")(function* (consumer
       manager: status.detectedManager,
       current,
       baselines: status.tracking.status.state.baselines,
-      links: status.tracking.status.state.links,
+      target: configurationTarget(status.tracking.status.state),
     });
     if (consumerConfigurationNeedsApply(current, plan)) {
       issues.push({ kind: "configuration-drift", consumerRoot: status.consumerRoot });
@@ -130,7 +143,7 @@ export const repairConsumer = Effect.fn("Doctor.repair")(function* (consumerStar
         manager: detectedManager,
         current,
         baselines: state.baselines,
-        links: state.links,
+        target: configurationTarget(state),
       });
       const repairedState: ConsumerState = {
         ...state,

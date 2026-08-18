@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { DetectedPackageManager } from "../package-manager/schema.ts";
-import { AbsolutePath, PackageName } from "../package/schema.ts";
+import { AbsolutePath, PackageName, PackageVersion } from "../package/schema.ts";
 
 export const ManifestMode = Schema.Literals(["normalized", "verbatim"]);
 export type ManifestMode = typeof ManifestMode.Type;
@@ -65,11 +65,21 @@ export const LinkRecord = Schema.Struct({
 });
 export type LinkRecord = typeof LinkRecord.Type;
 
+export const ConsumerMode = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("active") }),
+  Schema.Struct({
+    kind: Schema.Literal("stashed"),
+    versions: Schema.Record(PackageName, PackageVersion),
+  }),
+]);
+export type ConsumerMode = typeof ConsumerMode.Type;
+
 export const ConsumerState = Schema.Struct({
   version: Schema.Literal(1),
   packageManager: DetectedPackageManager,
   baselines: Schema.Array(ManagedFieldBaseline),
   links: Schema.Array(LinkRecord),
+  mode: ConsumerMode,
 });
 export type ConsumerState = typeof ConsumerState.Type;
 
