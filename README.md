@@ -1,6 +1,6 @@
 # lpm
 
-Link local packages into a consumer project without global registration or state. LPM copies publishable files and configures package-manager overrides.
+Link local npm packages into a consumer project without global registration or global state. LPM copies publishable files and configures package-manager overrides. It can also watch and install changes automatically, stash links temporarily, and commit source versions into the consumer manifest.
 
 ## Install
 
