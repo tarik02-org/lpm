@@ -86,3 +86,4 @@ If an install fails, fix the reported problem and rerun the command or use `doct
 - [Project language](CONTEXT.md)
 - [Core linking design](docs/core-linking-design.md)
 - [Architecture decisions](docs/adr/README.md)
+- [AI use](AI.md)
