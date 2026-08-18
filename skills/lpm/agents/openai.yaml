@@ -1,0 +1,4 @@
+interface:
+  display_name: "lpm"
+  short_description: "Manage local package links with lpm"
+  default_prompt: "Use $lpm to link a local package root into this consumer."
