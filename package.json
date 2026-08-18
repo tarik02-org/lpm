@@ -38,7 +38,7 @@
     "lint:fix": "vp lint --fix",
     "prepack": "pnpm build",
     "release:check": "pnpm check && pnpm pack --dry-run",
-    "release:publish": "npm view \"$npm_package_name@$npm_package_version\" version >/dev/null 2>&1 || (npm publish && changeset tag)",
+    "release:publish": "changeset publish",
     "release:version": "changeset version && pnpm format",
     "typecheck": "tsgo --noEmit"
   },
