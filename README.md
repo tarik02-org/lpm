@@ -15,8 +15,6 @@ nix profile install github:tarik02-org/lpm
 Run LPM from the consumer project:
 
 ```text
-echo '/.local/lpm/' >> .gitignore
-
 lpm link ../ui-kit /work/shared/logger
 lpm dev
 ```
@@ -32,6 +30,16 @@ lpm link ../ui-kit --verbatim
 Supported package managers: npm, pnpm, Yarn, Bun, and Aube.
 
 Run `lpm <command> --help` for command details.
+
+## Ignore local files
+
+LPM writes to `.local/lpm` by default. Keep `.local` out of Git using one of:
+
+- Add `.local/` to `${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore` to ignore it globally (`core.excludesFile`).
+- Add `/.local/` to the project's `.gitignore`.
+- Add `/.local/` to `.git/info/exclude` for the current checkout only.
+
+If you configure another LPM directory, ignore that path instead.
 
 ## CLI cheatsheet
 
