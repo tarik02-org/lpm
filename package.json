@@ -1,6 +1,6 @@
 {
   "name": "@tarik02/lpm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Link local package roots into consumer projects",
   "keywords": [
     "cli",
