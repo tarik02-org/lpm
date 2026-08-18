@@ -10,7 +10,7 @@
     {
       nixpkgs,
       nixpkgs-darwin,
-      ...
+      self,
     }:
     let
       systems = [
@@ -26,20 +26,9 @@
         system:
         let
           pkgs = import (nixpkgsFor system) { inherit system; };
-          source = pkgs.lib.fileset.toSource {
-            root = ./.;
-            fileset = pkgs.lib.fileset.unions [
-              ./package.json
-              ./pnpm-lock.yaml
-              ./pnpm-workspace.yaml
-              ./src
-              ./tsconfig.json
-              ./vite.config.ts
-            ];
-          };
         in
         rec {
-          lpm = pkgs.callPackage ./nix/package.nix { src = source; };
+          lpm = pkgs.callPackage ./nix/package.nix { src = self; };
           default = lpm;
         }
       );
