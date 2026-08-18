@@ -5,7 +5,7 @@
   lib,
   makeWrapper,
   nodejs_24,
-  pnpm_10,
+  pnpm_11,
   pnpmConfigHook,
   src,
   stdenv,
@@ -14,7 +14,7 @@
 
 let
   nodejs = nodejs_24;
-  pnpm = pnpm_10;
+  pnpm = pnpm_11;
   version = (builtins.fromJSON (builtins.readFile "${src}/package.json")).version;
 in
 stdenv.mkDerivation (finalAttrs: {
@@ -26,7 +26,7 @@ stdenv.mkDerivation (finalAttrs: {
     inherit (finalAttrs) pname version src;
     inherit pnpm;
     fetcherVersion = 4;
-    hash = "sha256-mpwrW+aOi0qNeCJvHoCBLp9CXRIOGXzWGNh9u0KGoZY=";
+    hash = "sha256-nItSkX0jweiuFwec15hIvST/1kBgVRIWGDUsISuB4qU=";
   };
 
   nativeBuildInputs = [
@@ -53,7 +53,7 @@ stdenv.mkDerivation (finalAttrs: {
     app="$out/libexec/lpm"
     mkdir -p "$out/bin"
     pnpm --filter @tarik02/lpm --config.inject-workspace-packages=true \
-      deploy --prod --offline "$app"
+      deploy --prod --offline --ignore-scripts "$app"
     makeWrapper ${lib.getExe nodejs} "$out/bin/lpm" \
       --add-flags "$app/dist/bin.js"
     installShellCompletion --cmd lpm \
