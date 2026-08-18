@@ -16,6 +16,12 @@ The package-manager workspace root that receives linked packages. In a monorepo,
 **Link**:
 A consumer-owned association from a package name to a package root. The link also owns that consumer's materialization behavior.
 
+**Stashed consumer**:
+A consumer whose links are preserved but temporarily resolve each linked package's exact package-root version from the registry instead of local materializations. All links are stashed and unstashed together. Partial stashing does not exist.
+
+**Link commit**:
+An irreversible replacement of every consumer link with a registry-backed dependency declaration derived from the package root's version. Committing removes all LPM state and materializations from the consumer.
+
 **Materialization**:
 The consumer-local copy of a linked package's publishable files.
 
